@@ -1,0 +1,11 @@
+[driver]
+name="odi-ata-pio"
+version="0.1.0"
+odi_abi="1.1"
+class="block"
+bus="isa"
+architectures="i686,x86_64"
+
+[match]
+legacy_io="0x1f0"
+legacy_irq=14
