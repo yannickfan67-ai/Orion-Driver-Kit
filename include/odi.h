@@ -57,8 +57,8 @@ typedef struct odi_driver_descriptor {
  int(*probe)(const odi_kernel_api*,const odi_device*);int(*attach)(const odi_kernel_api*,const odi_device*,void**);int(*start)(const odi_kernel_api*,void*);void(*stop)(const odi_kernel_api*,void*);void(*detach)(const odi_kernel_api*,void*);
  uint64_t required_kernel_capabilities,supported_architectures;void*reserved[4];
 } odi_driver_descriptor;
-#define ODI_API_HAS(api,member) ((api)&&(api)->struct_size>=offsetof(odi_kernel_api,member)+sizeof((api)->member))
-#define ODI_DRIVER_HAS(desc,member) ((desc)&&(desc)->struct_size>=offsetof(odi_driver_descriptor,member)+sizeof((desc)->member))
+#define ODI_API_HAS(api,member) ((api)->struct_size>=offsetof(odi_kernel_api,member)+sizeof((api)->member))
+#define ODI_DRIVER_HAS(desc,member) ((desc)->struct_size>=offsetof(odi_driver_descriptor,member)+sizeof((desc)->member))
 #define ODI_DRIVER_ENTRY_SYMBOL odi_driver_entry
 const odi_driver_descriptor*odi_driver_entry(void);
 #endif
