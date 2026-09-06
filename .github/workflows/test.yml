@@ -5,13 +5,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Compile ODI 1.1 reference drivers
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -Iinclude -c examples/86box-ne2000/driver.c -o /tmp/ne2000.o
+          cc -std=c11 -Wall -Wextra -Werror -Iinclude -c examples/86box-ide-pio/driver.c -o /tmp/ata-pio.o
       - name: ODK package self-test
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          Path('/tmp/payload.elf').write_bytes(b'\x7fELF'+bytes(124))
-          Path('/tmp/driver.toml').write_text('[driver]\nname="selftest"\nversion="0.1.0"\nodi_abi="1.0"\n', encoding='utf-8')
+          def elf(cls):
+              b=bytearray(128); b[:4]=b'\x7fELF'; b[4]=cls; return bytes(b)
+          Path('/tmp/payload64.elf').write_bytes(elf(2))
+          Path('/tmp/payload32.elf').write_bytes(elf(1))
+          Path('/tmp/driver.toml').write_text('[driver]\nname="selftest"\nversion="0.1.0"\nodi_abi="1.1"\n', encoding='utf-8')
           PY
-          python3 odk.py pack --manifest /tmp/driver.toml --payload /tmp/payload.elf -o /tmp/selftest.odrv
-          python3 odk.py inspect /tmp/selftest.odrv --manifest
-          python3 odk.py check /tmp/selftest.odrv
+          python3 odk.py pack --manifest /tmp/driver.toml --payload /tmp/payload64.elf --arch x86_64 -o /tmp/x64.odrv
+          python3 odk.py check /tmp/x64.odrv
+          python3 odk.py pack --manifest /tmp/driver.toml --payload /tmp/payload64.elf --arch aarch64 -o /tmp/arm64.odrv
+          python3 odk.py check /tmp/arm64.odrv
+          python3 odk.py pack --manifest /tmp/driver.toml --payload /tmp/payload64.elf --arch riscv64 -o /tmp/rv64.odrv
+          python3 odk.py check /tmp/rv64.odrv
+          python3 odk.py pack --manifest /tmp/driver.toml --payload /tmp/payload32.elf --arch i686 -o /tmp/i686.odrv
+          python3 odk.py inspect /tmp/i686.odrv --manifest
+          python3 odk.py check /tmp/i686.odrv
