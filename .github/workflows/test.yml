@@ -1,0 +1,17 @@
+name: odk-test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ODK package self-test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          Path('/tmp/payload.elf').write_bytes(b'\x7fELF'+bytes(124))
+          Path('/tmp/driver.toml').write_text('[driver]\nname="selftest"\nversion="0.1.0"\nodi_abi="1.0"\n', encoding='utf-8')
+          PY
+          python3 odk.py pack --manifest /tmp/driver.toml --payload /tmp/payload.elf -o /tmp/selftest.odrv
+          python3 odk.py inspect /tmp/selftest.odrv --manifest
+          python3 odk.py check /tmp/selftest.odrv
