@@ -1,0 +1,12 @@
+[driver]
+name="odi-ne2000"
+version="0.1.0"
+odi_abi="1.1"
+class="network"
+bus="isa"
+architectures="i686,x86_64"
+
+[match]
+pnp_id="PNP80D6"
+legacy_io="0x300"
+legacy_irq=10
