@@ -7,6 +7,7 @@ HEADER_SIZE=128
 # ODRV package IDs are stable and intentionally distinct from ODI runtime IDs.
 ARCHES={'x86_64':1,'aarch64':2,'i686':3,'riscv64':4}
 ARCH_NAMES={v:k for k,v in ARCHES.items()}
+ODI_ARCH_MACROS={'i686':'ODI_ARCH_I686','x86_64':'ODI_ARCH_X86_64','aarch64':'ODI_ARCH_AARCH64','riscv64':'ODI_ARCH_RISCV64'}
 PAYLOAD_ELF64=1
 PAYLOAD_ELF32=2
 HEADER=struct.Struct('<4sHHHHHHIIIIIIII80s')
@@ -20,6 +21,9 @@ def parse_manifest(path):
 
 def payload_kind_for(arch):
     return PAYLOAD_ELF32 if arch=='i686' else PAYLOAD_ELF64
+
+def expected_payload_kind_for_arch_id(arch):
+    return PAYLOAD_ELF32 if arch==ARCHES['i686'] else PAYLOAD_ELF64 if arch in ARCH_NAMES else 0
 
 def elf_class(payload):
     if len(payload)<5 or not payload.startswith(b'\x7fELF'):
@@ -57,8 +61,17 @@ def parse(path):
     if magic!=MAGIC: raise ValueError('bad magic')
     if fmt!=FORMAT_VERSION or hs!=HEADER_SIZE: raise ValueError('unsupported header')
     if arch not in ARCH_NAMES: raise ValueError(f'unsupported architecture id {arch}')
-    for off,size,name in [(mo,ms,'manifest'),(po,ps,'payload'),(ro,rs,'resources')]:
-        if off<HEADER_SIZE or off+size>len(data): raise ValueError(f'{name} section out of bounds')
+    expected_kind=expected_payload_kind_for_arch_id(arch)
+    if payload_kind!=expected_kind:
+        raise ValueError(f'payload kind {payload_kind} does not match {ARCH_NAMES[arch]}')
+    sections=[(mo,ms,'manifest'),(po,ps,'payload'),(ro,rs,'resources')]
+    previous_end=HEADER_SIZE
+    for off,size,name in sections:
+        if off<HEADER_SIZE or off>len(data) or size>len(data)-off:
+            raise ValueError(f'{name} section out of bounds')
+        if off<previous_end:
+            raise ValueError(f'{name} section overlaps previous section')
+        previous_end=off+size
     return data,dict(format=fmt,header_size=hs,abi_major=abi_maj,abi_minor=abi_min,arch=arch,payload_kind=payload_kind,flags=flags,manifest_offset=mo,manifest_size=ms,payload_offset=po,payload_size=ps,resources_offset=ro,resources_size=rs,crc32=crc)
 
 def inspect(args):
@@ -90,11 +103,15 @@ def new(args):
     root=pathlib.Path(args.name); root.mkdir(parents=True,exist_ok=False)
     driver_class=args.driver_class
     bus=args.bus
-    arches=','.join(args.arch)
+    selected=[]
+    for arch in args.arch:
+        if arch not in selected:selected.append(arch)
+    arches=','.join(selected)
     (root/'driver.toml').write_text(
         '[driver]\nname="'+root.name+'"\nversion="0.1.0"\nodi_abi="1.1"\nclass="'+driver_class+'"\nbus="'+bus+'"\narchitectures="'+arches+'"\n',encoding='utf-8')
     class_macro='ODI_CLASS_'+driver_class.upper()
-    source='''#include <odi.h>\n\nstatic int probe(const odi_kernel_api *api,const odi_device *dev){\n    (void)api; (void)dev; return ODI_ENODEV;\n}\n\nstatic const odi_driver_descriptor driver={\n    .struct_size=sizeof(odi_driver_descriptor), .abi_major=ODI_ABI_MAJOR, .abi_minor=ODI_ABI_MINOR,\n    .driver_class='''+class_macro+''', .name="'''+root.name+'''", .version="0.1.0",\n    .probe=probe, .required_kernel_capabilities=0,\n    .supported_architectures=ODI_ARCH_BIT(ODI_ARCH_X86_64)|ODI_ARCH_BIT(ODI_ARCH_AARCH64)|ODI_ARCH_BIT(ODI_ARCH_RISCV64)\n};\nconst odi_driver_descriptor *odi_driver_entry(void){return &driver;}\n'''
+    arch_mask='|'.join('ODI_ARCH_BIT('+ODI_ARCH_MACROS[a]+')' for a in selected)
+    source='''#include <odi.h>\n\nstatic int probe(const odi_kernel_api *api,const odi_device *dev){\n    (void)api; (void)dev; return ODI_ENODEV;\n}\n\nstatic const odi_driver_descriptor driver={\n    .struct_size=sizeof(odi_driver_descriptor), .abi_major=ODI_ABI_MAJOR, .abi_minor=ODI_ABI_MINOR,\n    .driver_class='''+class_macro+''', .name="'''+root.name+'''", .version="0.1.0",\n    .probe=probe, .required_kernel_capabilities=0,\n    .supported_architectures='''+arch_mask+'''\n};\nconst odi_driver_descriptor *odi_driver_entry(void){return &driver;}\n'''
     (root/'driver.c').write_text(source,encoding='utf-8')
     print('created',root)
 
