@@ -39,12 +39,17 @@ static int wait_not_busy(ata_ctx*c){for(unsigned n=0;n<1000000;n++){uint8_t s=r8
 static int wait_drq(ata_ctx*c){for(unsigned n=0;n<1000000;n++){uint8_t s=r8(c,ATA_STATUS);if(s&(ATA_SR_ERR|ATA_SR_DF))return ODI_EIO;if(!(s&ATA_SR_BSY)&&(s&ATA_SR_DRQ))return ODI_OK;}return ODI_EIO;}
 static int identify(ata_ctx*c,uint16_t out[256]){
     w8(c,ATA_DRIVE,0xa0);io_delay(c);w8(c,ATA_SECCOUNT,0);w8(c,ATA_LBA0,0);w8(c,ATA_LBA1,0);w8(c,ATA_LBA2,0);w8(c,ATA_COMMAND,ATA_CMD_IDENTIFY);
-    uint8_t s=r8(c,ATA_STATUS);if(s==0||s==0xff)return ODI_ENODEV;if(wait_not_busy(c)!=ODI_OK)return ODI_EIO;
-    if(r8(c,ATA_LBA1)||r8(c,ATA_LBA2))return ODI_ENODEV;if(wait_drq(c)!=ODI_OK)return ODI_EIO;
-    for(int i=0;i<256;i++)out[i]=r16(c,ATA_DATA);return ODI_OK;
+    uint8_t s=r8(c,ATA_STATUS);
+    if(s==0||s==0xff)return ODI_ENODEV;
+    if(wait_not_busy(c)!=ODI_OK)return ODI_EIO;
+    if(r8(c,ATA_LBA1)||r8(c,ATA_LBA2))return ODI_ENODEV;
+    if(wait_drq(c)!=ODI_OK)return ODI_EIO;
+    for(int i=0;i<256;i++)out[i]=r16(c,ATA_DATA);
+    return ODI_OK;
 }
 static int select_lba28(ata_ctx*c,uint32_t lba,uint8_t count,uint8_t command){
-    if(lba>=0x10000000u||!count)return ODI_EINVAL;if(wait_not_busy(c)!=ODI_OK)return ODI_EIO;
+    if(lba>=0x10000000u||!count)return ODI_EINVAL;
+    if(wait_not_busy(c)!=ODI_OK)return ODI_EIO;
     w8(c,ATA_DRIVE,(uint8_t)(0xe0|((lba>>24)&0x0f)));io_delay(c);w8(c,ATA_SECCOUNT,count);w8(c,ATA_LBA0,(uint8_t)lba);w8(c,ATA_LBA1,(uint8_t)(lba>>8));w8(c,ATA_LBA2,(uint8_t)(lba>>16));w8(c,ATA_COMMAND,command);return ODI_OK;
 }
 static uint32_t block_sector_size(void*opaque){(void)opaque;return 512;}
@@ -67,7 +72,19 @@ static int probe(const odi_kernel_api*api,const odi_device*dev){
     ata_ctx c={api,dev->id.isa.io_base,dev->id.isa.irq,0,0};uint16_t id[256];return identify(&c,id);
 }
 static int attach(const odi_kernel_api*api,const odi_device*dev,void**out){
-    if(!api||!dev||!out||!api->alloc_pages)return ODI_EINVAL;void*p=0;uint64_t phys=0;if(api->alloc_pages(1,0xffffffffu,&p,&phys)!=ODI_OK)return ODI_ENOMEM;(void)phys;ata_ctx*c=p;for(size_t i=0;i<sizeof(*c);i++)((uint8_t*)c)[i]=0;c->api=api;c->base=dev->id.isa.io_base;c->irq=dev->id.isa.irq;uint16_t id[256];int rc=identify(c,id);if(rc!=ODI_OK){api->free_pages(p,1);return rc;}c->sectors=(uint32_t)id[60]|((uint32_t)id[61]<<16);if(!c->sectors){api->free_pages(p,1);return ODI_ENODEV;}*out=c;return ODI_OK;
+    if(!api||!dev||!out||!api->alloc_pages)return ODI_EINVAL;
+    void*p=0;uint64_t phys=0;
+    if(api->alloc_pages(1,0xffffffffu,&p,&phys)!=ODI_OK)return ODI_ENOMEM;
+    (void)phys;
+    ata_ctx*c=p;
+    for(size_t i=0;i<sizeof(*c);i++)((uint8_t*)c)[i]=0;
+    c->api=api;c->base=dev->id.isa.io_base;c->irq=dev->id.isa.irq;
+    uint16_t id[256];int rc=identify(c,id);
+    if(rc!=ODI_OK){api->free_pages(p,1);return rc;}
+    c->sectors=(uint32_t)id[60]|((uint32_t)id[61]<<16);
+    if(!c->sectors){api->free_pages(p,1);return ODI_ENODEV;}
+    *out=c;
+    return ODI_OK;
 }
 static int start(const odi_kernel_api*api,void*opaque){ata_ctx*c=opaque;if((api->capabilities&ODI_KERNEL_CAP_SERVICE_REGISTRY)&&api->service_publish)return api->service_publish(ODI_CLASS_BLOCK,&BLOCK_OPS,sizeof(BLOCK_OPS),c,&c->service_id);return ODI_OK;}
 static void stop(const odi_kernel_api*api,void*opaque){ata_ctx*c=opaque;if(c->service_id&&api->service_remove)api->service_remove(c->service_id);}
