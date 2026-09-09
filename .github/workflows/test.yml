@@ -1,5 +1,6 @@
 name: odk-test
 on: [push, pull_request]
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -9,22 +10,11 @@ jobs:
         run: |
           cc -std=c11 -Wall -Wextra -Werror -Iinclude -c examples/86box-ne2000/driver.c -o /tmp/ne2000.o
           cc -std=c11 -Wall -Wextra -Werror -Iinclude -c examples/86box-ide-pio/driver.c -o /tmp/ata-pio.o
-      - name: ODK package self-test
+      - name: Run ODK unit and corruption tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Compile a generated multi-architecture scaffold
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          def elf(cls):
-              b=bytearray(128); b[:4]=b'\x7fELF'; b[4]=cls; return bytes(b)
-          Path('/tmp/payload64.elf').write_bytes(elf(2))
-          Path('/tmp/payload32.elf').write_bytes(elf(1))
-          Path('/tmp/driver.toml').write_text('[driver]\nname="selftest"\nversion="0.1.0"\nodi_abi="1.1"\n', encoding='utf-8')
-          PY
-          python3 odk.py pack --manifest /tmp/driver.toml --payload /tmp/payload64.elf --arch x86_64 -o /tmp/x64.odrv
-          python3 odk.py check /tmp/x64.odrv
-          python3 odk.py pack --manifest /tmp/driver.toml --payload /tmp/payload64.elf --arch aarch64 -o /tmp/arm64.odrv
-          python3 odk.py check /tmp/arm64.odrv
-          python3 odk.py pack --manifest /tmp/driver.toml --payload /tmp/payload64.elf --arch riscv64 -o /tmp/rv64.odrv
-          python3 odk.py check /tmp/rv64.odrv
-          python3 odk.py pack --manifest /tmp/driver.toml --payload /tmp/payload32.elf --arch i686 -o /tmp/i686.odrv
-          python3 odk.py inspect /tmp/i686.odrv --manifest
-          python3 odk.py check /tmp/i686.odrv
+          tmp=$(mktemp -d)
+          python3 odk.py new "$tmp/generated" --class network --bus pci --arch i686 --arch aarch64
+          cc -std=c11 -Wall -Wextra -Werror -Iinclude -c "$tmp/generated/driver.c" -o /tmp/generated.o
+          grep -q 'ODI_ARCH_BIT(ODI_ARCH_I686)|ODI_ARCH_BIT(ODI_ARCH_AARCH64)' "$tmp/generated/driver.c"
